@@ -1,11 +1,81 @@
 const express = require("express");
+const path = require("path");
+const { randomUUID } = require("node:crypto");
+const { getRegisteredUsers } = require("./inMemoryUserRepository");
 const app = express();
 const port = 3000;
+const authenticatedUsers = {};
+
+function checkCredentials(email, password) {
+  return getRegisteredUsers().some(
+    (user) => user.email === email && user.password === password,
+  );
+}
+
+function loggerMiddleware(request, response, next) {
+  console.log("nouvelle requête entrante");
+  console.log("Body :", request.body);
+  next();
+}
+
+function headersMiddleware(request, response, next) {
+  console.log("Headers :", request.headers);
+  next();
+}
+
+function firewall(request, response, next) {
+  const unrestrictedUrls = [
+    "/",
+    "/hello",
+    "/index.html",
+    "/style.css",
+    "/authenticate",
+  ];
+
+  if (unrestrictedUrls.includes(request.path)) {
+    return next();
+  }
+
+  const token = request.get("authorization");
+  if (!token || !authenticatedUsers[token]) {
+    return response.sendStatus(403);
+  }
+
+  next();
+}
 
 app.use(express.json());
+app.use(loggerMiddleware);
+app.use(headersMiddleware);
+app.use(firewall);
+app.use(express.static(path.join(__dirname, "public")));
+app.use(express.static(path.join(__dirname, "templates")));
+
+app.get("/hello", (req, res) => {
+  res.send("<h1>hello</h1>");
+});
+
+app.post("/authenticate", (req, res) => {
+  const { email, password } = req.body || {};
+
+  if (!checkCredentials(email, password)) {
+    return res.sendStatus(403);
+  }
+
+  const token = randomUUID();
+  authenticatedUsers[token] = { email };
+  res.json({ token });
+});
+
+app.get("/restricted1", (req, res) => {
+  res.json({ message: "topsecret" });
+});
+
+app.get("/restricted2", (req, res) => {
+  res.send("<h1>Admin space</h1>");
+});
 
 app.get("/", (req, res) => {
-  console.log("Headers :", req.headers);
   console.log("Body :", req.body);
   res.send("Hello World!");
 });
